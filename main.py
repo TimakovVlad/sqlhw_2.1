@@ -62,9 +62,8 @@ def change_client(conn, client_id, first_name=None, last_name=None, email=None, 
 
         if set_values:
             set_clause = ", ".join(set_values)
-            update_query = f"UPDATE clients SET {set_clause} WHERE id = %s;"
             update_params.append(client_id)
-            cursor.execute(update_query, update_params)
+            cursor.execute("UPDATE clients SET " + set_clause + " WHERE id = %s;", update_params)
 
         if phones is not None:
             cursor.execute("DELETE FROM phones WHERE client_id = %s;", (client_id,))
@@ -80,51 +79,70 @@ def delete_client(conn, client_id):
     with conn.cursor() as cur:
         cur.execute("DELETE FROM clients WHERE id = %s;", (client_id,))
 
+
 def find_client(conn, first_name=None, last_name=None, email=None, phone=None):
     with conn.cursor() as cursor:
+        conditions = []
+        params = []
+
+        if first_name is not None:
+            conditions.append("c.first_name = %s")
+            params.append(first_name)
+
+        if last_name is not None:
+            conditions.append("c.last_name = %s")
+            params.append(last_name)
+
+        if email is not None:
+            conditions.append("c.email = %s")
+            params.append(email)
+
         if phone is not None:
-            cursor.execute("""
+            conditions.append("p.phone_number = %s")
+            params.append(phone)
+
+        if conditions:
+            where_clause = " AND ".join(conditions)
+            query = """
                 SELECT c.id, c.first_name, c.last_name, c.email, ARRAY_AGG(p.phone_number) as phones
                 FROM clients c
                 LEFT JOIN phones p ON c.id = p.client_id
-                WHERE p.phone_number = %s
+                WHERE {}
                 GROUP BY c.id;
-            """, (phone,))
+            """.format(where_clause)
+
+            cursor.execute(query, tuple(params))
         else:
-            cursor.execute("""
-                SELECT c.id, c.first_name, c.last_name, c.email, ARRAY_AGG(p.phone_number) as phones
-                FROM clients c
-                LEFT JOIN phones p ON c.id = p.client_id
-                WHERE c.first_name = %s OR c.last_name = %s OR c.email = %s
-                GROUP BY c.id;
-            """, (first_name, last_name, email))
+            return None  # Вернем None, если не указаны параметры для поиска
 
         return cursor.fetchall()
 
 
+
 # Пример использования:
-with psycopg2.connect(database="netology_bd", user="postgres", password="root") as conn:
-    drop_tables(conn)
-    create_db(conn)
-    add_client(conn, "John", "Jostar", "john.doe@example.com", phones=["123456789", "987654321"])
-    add_client(conn, "Alice", "Smith", "alice.smith@example.com")
+if __name__ == "__main__":
+    with psycopg2.connect(database="netology_bd", user="postgres", password="root") as conn:
+        drop_tables(conn)
+        create_db(conn)
+        add_client(conn, "John", "Jostar", "john.doe@example.com", phones=["123456789", "987654321"])
+        add_client(conn, "Alice", "Smith", "alice.smith@example.com")
 
-    print("Before update:")
-    print(find_client(conn, first_name="John"))
+        print("Before update:")
+        print(find_client(conn, first_name="John"))
 
-    change_client(conn, client_id=1, first_name="Jonathan", phones=["111111111"])
+        change_client(conn, client_id=1, first_name="Jonathan", phones=["111111111"])
 
-    print("After update:")
-    print(find_client(conn, first_name="Jonathan"))
+        print("After update:")
+        print(find_client(conn, first_name="Jonathan"))
 
-    delete_phone(conn, client_id=1, phone="111111111")
+        delete_phone(conn, client_id=1, phone="111111111")
 
-    print("After deleting phone:")
-    print(find_client(conn, first_name="Jonathan"))
+        print("After deleting phone:")
+        print(find_client(conn, first_name="Jonathan"))
 
-    delete_client(conn, client_id=1)
+        delete_client(conn, client_id=1)
 
-    print("After deleting client:")
-    print(find_client(conn, last_name="Doe"))
+        print("After deleting client:")
+        print(find_client(conn, last_name="Doe"))
 
-    print(find_client(conn, first_name="Alice"))
+        print(find_client(conn, first_name="Alice"))
